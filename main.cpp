@@ -13,7 +13,7 @@ int main() {
     setting_type settings;
     settings["charset"] = "utf-8";
 
-    CssDecorator decorator("css/sspai.css"); //新建一个css装饰器，后续再转成父类指针即可。
+    CssDecorator decorator("css/typora-dropbox.css"); //新建一个css装饰器，后续再转成父类指针即可。
 
     Parser parser(&md, &decorator,settings);
     write_to_file("test.html", parser.parse_file("test.md"));

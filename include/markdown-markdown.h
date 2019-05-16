@@ -16,7 +16,9 @@ namespace Markdown {
     class MarkdownP : public AbstractMarkdown {
     private:
         state curr;
-        bool is_in_blockquote;
+
+        /**UPDATE: 为了支持嵌套blockquote，将状态改成数值，表示该行处于多少层的blockquote中**/
+        int blockquote_level;
 
         /**
          * @name regex_handler

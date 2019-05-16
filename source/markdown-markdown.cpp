@@ -127,7 +127,8 @@ namespace Markdown {
         /**处理内联代码块的正则表达式**/
         inline_code_pattern = std::regex(R"(`{1,2}[^`](.*?)`{1,2})");
         /**处理引用块的正则表达式**/
-        blockquoting_pattern = std::regex(R"(^(&gt;|\>)(.*))");
+        //blockquoting_pattern = std::regex(R"(^(&gt;|\>)(.*))");
+        blockquoting_pattern = std::regex(R"(^([&gt;\>]+)(.*))");
         /**处理表格的正则表达式**/
         table_pattern = std::regex(R"((\|[^\n]+\|\r?\n)((?:\|:?[-]+:?)+\|)(\n(?:\|[^\n]+\|\r?\n?)*)?)");
 
@@ -165,7 +166,8 @@ namespace Markdown {
 
         /**初始化列表状态为无**/
         curr = state::NONE;
-        is_in_blockquote = false;
+        /**初始化引用块处理层数为0**/
+        blockquote_level = 0;
     }
 
 
@@ -178,6 +180,7 @@ namespace Markdown {
         state handle_state = state::NONE;
         /**本次parse过程中是否处理到blockquote，用于引用块处理，和列表状态分开，因为他们是可以同时作用的（引用块内嵌列表）**/
         bool handle_blockquote = false;
+        int handle_blockquote_level = 0;
         /**该行是否需要加上标签<p>...</p>，如果该行不处于引用块和列表，且不是分隔符和标题，需加上**/
         bool need_add_label_p = true;
 
@@ -187,11 +190,15 @@ namespace Markdown {
             auto &re = regex_handler[i];
             if (std::regex_search(line, std::get<0>(re))) {
                 need_add_label_p = (i < 5 && i > 0 ? false : need_add_label_p);
-                line = std::get<1>(re)(line, std::get<0>(re));
 
                 if (i == BLOCKQUOTE_POST) {
-                    handle_blockquote = true;
+                    /**如果处理到引用块，需要分析出大于号的数目，以便获知当前行所在第几层的引用块**/
+                    std::smatch m;
+                    std::regex_match(line, m, regex_handler[BLOCKQUOTE_POST].first);
+                    handle_blockquote_level = static_cast<int>(m[1].str().length()); //m[1].str().length() 为>符号的数目，因为第一个分组就是匹配到各个大于号
                 }
+
+                line = std::get<1>(re)(line, std::get<0>(re));
 
                 /**根据迭代的情况，标记当前处理列表状况**/
                 if (i == UL_POSI) {
@@ -222,11 +229,14 @@ namespace Markdown {
             line.insert(0, "<ol>\n");
         }
 
-
-        /**如果is_in_blockquote（上次引用块处理情况）为false而本次parse有处理到blockquote，更新并加上标签<blockquote>**/
-        if (handle_blockquote && !is_in_blockquote) {
-            line.insert(0, "<blockquote>\n");
-            is_in_blockquote = true;
+        /**UPDATE 20190517---支持嵌套引用块**/
+        /**如果blockquote_level（上行引用块处理层数）小于本行处理的层数，意味着进入了更深的层次，需要加上标签<blockquote>**/
+        /**要注意可能不止进入深一层，也有可能深几层，所以要通过循环加入多个标签**/
+        if (handle_blockquote_level > blockquote_level) {
+            std::string tmp;
+            for (int i = handle_blockquote_level; i > blockquote_level; i--)
+                tmp += "<blockquote>\n";
+            line.insert(0, tmp);
         }
 
         /**********************************************/
@@ -239,10 +249,14 @@ namespace Markdown {
         /**********************************************/
 
         /**FIXED: 结束状态要统一处理，全部最后时刻放在一行数据中的最前面**/
-        /**如果is_in_blockquote（上次引用块处理情况）为true而本次parse没有处理到blockquote，更新并加上标签</blockquote>**/
-        if (!handle_blockquote && is_in_blockquote) {
-            line.insert(0, "</blockquote>\n");
-            is_in_blockquote = false;
+
+        /**UPDATE 20190517---支持嵌套引用块**/
+        /**如果blockquote_level（上行引用块处理层数）大于本行处理的层数，意味着从深的层次跳出来了，需要加上标签</blockquote>闭合更深一层的标签**/
+        if (handle_blockquote_level < blockquote_level) {
+            std::string tmp;
+            for (int i = handle_blockquote_level; i < blockquote_level; i++)
+                tmp += "</blockquote>\n";
+            line.insert(0, tmp);
         }
 
         /**如果curr（上次列表处理情况）为处理列表状态而本次parse没有处理到列表，更新curr并加上标签</ul>或者</ol>**/
@@ -253,6 +267,7 @@ namespace Markdown {
         }
 
         /**FIXED: 迟更新，直到所有工作处理完之后才更新curr为handle_state，避免标签插入异常**/
+        blockquote_level = handle_blockquote_level;  // 更新处理的引用块层数
         curr = handle_state;
         return line + "\n";
     }
