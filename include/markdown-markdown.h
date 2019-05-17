@@ -9,14 +9,11 @@
 
 
 namespace Markdown {
-    enum class state {
-        NONE = 0, OL = 1, UL = 2
-    };
 
     class MarkdownP : public AbstractMarkdown {
     private:
-        state curr;
-
+        /**UPDATE: 为了支持嵌套列表，将状态改成了状态栈，用于存储前面的"深度值"，即前面连续多行开头的空白字符数目，
+         * 根据栈顶可以分析出当前行是否深入一层嵌套还是从深层列表中出去**/
         std::stack<int> ul_level;
         std::stack<int> ol_level;
 

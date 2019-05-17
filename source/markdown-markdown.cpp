@@ -64,16 +64,16 @@ namespace Markdown {
         trim(head);
 
         std::vector<std::string> head_cols = split_str(head, "|");
-        int col_num = static_cast<int>(head_cols.size());
+        int col_num = static_cast<int>(head_cols.size()); //总列数
 
-        std::string content = m[3].str();
-        trim(content);
-        auto all_cols = split_str(content, "|");
+        std::string content = m[3].str();  //注意匹配后所有body的信息全部在一个字符串中
+        trim(content); //trim后最后一个换行符去掉了，所以后面要+1
+        auto all_cols = split_str(content, "|"); //切割出内容行的所有列，
         int content_row_num = static_cast<int>((all_cols.size() + 1) / (col_num + 1));
 
         std::string content_arr[content_row_num][col_num];
         for (int i = 0, row = 0; i < all_cols.size(); i += (col_num + 1), row++) {
-            for(int j = 0; j < col_num; j++) {
+            for (int j = 0; j < col_num; j++) {
                 content_arr[row][j] = all_cols[i + j];
             }
         }
@@ -167,11 +167,10 @@ namespace Markdown {
         };
 
 
-        /**初始化列表状态为无**/
-        curr = state::NONE;
         /**初始化引用块处理层数为0**/
         blockquote_level = 0;
 
+        /**两个列表的初始状态栈全部为-1**/
         ul_level.push(-1);
         ol_level.push(-1);
     }
@@ -182,10 +181,7 @@ namespace Markdown {
         const int OL_POSI = 2;
         const int BLOCKQUOTE_POSI = 0;
 
-        /**本次parse过程中是否处理到列表ul或者ol，用于列表处理**/
-        state handle_state = state::NONE;
-
-        /**UPDATE**/
+        /**UPDATE——当前行对应的有序列表和无序列表的"深度值"，在后续的正则匹配中所赋值**/
         int handle_ul_level = -1;
         int handle_ol_level = -1;
 
@@ -209,22 +205,20 @@ namespace Markdown {
                     handle_blockquote_level = static_cast<int>(m[1].str().length()); //m[1].str().length() 为>符号的数目，因为第一个分组就是匹配到各个大于号
                 }
 
-                /**根据迭代的情况，标记当前处理列表状况**/
+                /**根据迭代的情况，标记当前处理列表状况，有序列表和无序列表是互斥的**/
                 if (i == UL_POSI) {
-                    handle_state = state::UL;
-
+                    /**根据匹配结果得到当前行的"深度值"，即空白符的数目，下同**/
                     std::smatch m;
                     std::regex_match(line, m, regex_handler[UL_POSI].first);
                     handle_ul_level = static_cast<int>(m[1].str().length());
 
                 } else if (i == OL_POSI) {
-                    handle_state = state::OL;
-
                     std::smatch m;
                     std::regex_match(line, m, regex_handler[OL_POSI].first);
                     handle_ol_level = static_cast<int>(m[1].str().length());
                 }
 
+                /**FIXED: 最后才将该行的主体信息提取出来**/
                 line = std::get<1>(re)(line, std::get<0>(re));
             }
         }
@@ -242,14 +236,9 @@ namespace Markdown {
         **，因为允许在<blockquote>中添加列表***************/
         /**********************************************/
 
-        /**如果curr（上次列表处理情况）和本次parse有处理列表的类型不一样，更新curr并加上标签<ul>或者<ol>**/
-        if (handle_state == state::UL && curr != state::UL) {
-            //line.insert(0, "<ul>\n");
-        } else if (handle_state == state::OL && curr != state::OL) {
-            //line.insert(0, "<ol>\n");
-        }
-
-
+        /**UPDATE 20190518---支持有序列表和无序列表的嵌套**/
+        /**如果状态栈中的"深度值"小于当前列表项的"深度值"，意味着该行已经进去了更深一层的列表，此时插入一个左标签以开始一个新的嵌套列表，并将当前的
+         * "深度值"放进状态栈中**/
         if (handle_ul_level > ul_level.top()) {
             line.insert(0, "<ul>\n");
             ul_level.push(handle_ul_level);
@@ -290,14 +279,9 @@ namespace Markdown {
             line.insert(0, tmp);
         }
 
-        /**如果curr（上次列表处理情况）为处理列表状态而本次parse没有处理到列表，更新curr并加上标签</ul>或者</ol>**/
-        if (curr == state::OL && handle_state != state::OL) {
-            //line.insert(0, "</ol>\n");
-        } else if (curr == state::UL && handle_state != state::UL) {
-            //line.insert(0, "</ul>\n");
-        }
-
-        /**UPDATE**/
+        /**UPDATE 20190518---支持有序列表和无序列表的嵌套**/
+        /**如果状态栈中的"深度值"大于当前列表项的"深度值"，意味着该行已经跳出了一个或者多个列表的嵌套，此时弹出栈，每弹出一个元素插入一个右标签以闭合一层嵌套，
+         * 直到栈顶元素小于等于当前状态值即可，在这里，进去只能进去深一层，但可以出去多层**/
         if (handle_ul_level < ul_level.top()) {
             while (ul_level.top() > handle_ul_level) {
                 line.insert(0, "</ul>\n");
@@ -314,7 +298,7 @@ namespace Markdown {
 
         /**FIXED: 迟更新，直到所有工作处理完之后才更新curr为handle_state，避免标签插入异常**/
         blockquote_level = handle_blockquote_level;  // 更新处理的引用块层数
-        curr = handle_state;
+
         return line + "\n";
     }
 
