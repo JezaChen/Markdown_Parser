@@ -65,16 +65,19 @@ namespace Markdown {
 
         std::vector<std::string> head_cols = split_str(head, "|");
         int col_num = static_cast<int>(head_cols.size());
-        std::string tmp[m.size() - 3][col_num];
-        for (int row = 3; row < m.size(); row++) {
-            auto row_str = m[row].str();
-            trim(row_str);
 
-            auto curr_cols = split_str(row_str, "|");
-            for (int col = 0; col < col_num; col++) {
-                tmp[row - 3][col] = curr_cols[col];
+        std::string content = m[3].str();
+        trim(content);
+        auto all_cols = split_str(content, "|");
+        int content_row_num = static_cast<int>((all_cols.size() + 1) / (col_num + 1));
+
+        std::string content_arr[content_row_num][col_num];
+        for (int i = 0, row = 0; i < all_cols.size(); i += (col_num + 1), row++) {
+            for(int j = 0; j < col_num; j++) {
+                content_arr[row][j] = all_cols[i + j];
             }
         }
+
 
         std::stringstream ret;
         ret << "<table>\n<thead>\n<tr>\n";
@@ -83,10 +86,10 @@ namespace Markdown {
         ret << "</tr>\n</thead>\n<tbody>\n";
 
 
-        for (int i = 0; i < m.size() - 3; i++) {
+        for (int i = 0; i < content_row_num; i++) {
             ret << "<tr>\n";
             for (int j = 0; j < col_num; j++) {
-                ret << "<td>" << tmp[i][j] << "</td>\n";
+                ret << "<td>" << content_arr[i][j] << "</td>\n";
             }
             ret << "</tr>\n";
         }
