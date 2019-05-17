@@ -38,11 +38,11 @@ namespace Markdown {
     }
 
     parse_result MarkdownP::parse_bullet_list(const std::string &line, const std::regex &reg) {
-        return regex_replace(line, reg, "<li>$1</li>"); // 直接替代成<li>...</li>
+        return regex_replace(line, reg, "<li>$2</li>"); // 直接替代成<li>...</li>
     }
 
     parse_result MarkdownP::parse_numbered_list(const std::string &line, const std::regex &reg) {
-        return regex_replace(line, reg, "<li>$1</li>"); // 直接替代成<li>...</li>
+        return regex_replace(line, reg, "<li>$2</li>"); // 直接替代成<li>...</li>
     }
 
     parse_result MarkdownP::parse_bold(const std::string &line, const std::regex &reg) {
@@ -116,8 +116,8 @@ namespace Markdown {
         italic_pattern = std::regex(R"((\*|_)(.*?)\1)");
         del_pattern = std::regex(R"((~~)(.*?)\1)");
         hr_pattern = std::regex(R"(^-{3,}$)");
-        ul_li_pattern = std::regex(R"(^[\s]*[-\*\+] +(.*))");
-        ol_li_pattern = std::regex(R"(^[\s]*[0-9]+\.(.*))");
+        ul_li_pattern = std::regex(R"(^([\s]*)[-\*\+] +(.*))");
+        ol_li_pattern = std::regex(R"(^([\s]*)[0-9]+\.(.*))");
         /**处理超链接的正则表达式，需要考虑到[[...](...)...)的情况**/
         link_pattern = std::regex(R"(\[([^\[]+)\]\(([^\)]+)\))");
         /**处理图片的正则表达式，需要考虑到![[...]]](....))——只要考虑匹配最外的中括号即可**/
@@ -168,16 +168,24 @@ namespace Markdown {
         curr = state::NONE;
         /**初始化引用块处理层数为0**/
         blockquote_level = 0;
+
+        ul_level.push(-1);
+        ol_level.push(-1);
     }
 
 
     std::string MarkdownP::parse_line(std::string line) {
         const int UL_POSI = 1; //处理ul列表的handler处于regex_handler的位置，下同
         const int OL_POSI = 2;
-        const int BLOCKQUOTE_POST = 0;
+        const int BLOCKQUOTE_POSI = 0;
 
         /**本次parse过程中是否处理到列表ul或者ol，用于列表处理**/
         state handle_state = state::NONE;
+
+        /**UPDATE**/
+        int handle_ul_level = -1;
+        int handle_ol_level = -1;
+
         /**本次parse过程中是否处理到blockquote，用于引用块处理，和列表状态分开，因为他们是可以同时作用的（引用块内嵌列表）**/
         bool handle_blockquote = false;
         int handle_blockquote_level = 0;
@@ -191,21 +199,30 @@ namespace Markdown {
             if (std::regex_search(line, std::get<0>(re))) {
                 need_add_label_p = (i < 5 && i > 0 ? false : need_add_label_p);
 
-                if (i == BLOCKQUOTE_POST) {
+                if (i == BLOCKQUOTE_POSI) {
                     /**如果处理到引用块，需要分析出大于号的数目，以便获知当前行所在第几层的引用块**/
                     std::smatch m;
-                    std::regex_match(line, m, regex_handler[BLOCKQUOTE_POST].first);
+                    std::regex_match(line, m, regex_handler[BLOCKQUOTE_POSI].first);
                     handle_blockquote_level = static_cast<int>(m[1].str().length()); //m[1].str().length() 为>符号的数目，因为第一个分组就是匹配到各个大于号
                 }
-
-                line = std::get<1>(re)(line, std::get<0>(re));
 
                 /**根据迭代的情况，标记当前处理列表状况**/
                 if (i == UL_POSI) {
                     handle_state = state::UL;
+
+                    std::smatch m;
+                    std::regex_match(line, m, regex_handler[UL_POSI].first);
+                    handle_ul_level = static_cast<int>(m[1].str().length());
+
                 } else if (i == OL_POSI) {
                     handle_state = state::OL;
+
+                    std::smatch m;
+                    std::regex_match(line, m, regex_handler[OL_POSI].first);
+                    handle_ol_level = static_cast<int>(m[1].str().length());
                 }
+
+                line = std::get<1>(re)(line, std::get<0>(re));
             }
         }
 
@@ -224,9 +241,20 @@ namespace Markdown {
 
         /**如果curr（上次列表处理情况）和本次parse有处理列表的类型不一样，更新curr并加上标签<ul>或者<ol>**/
         if (handle_state == state::UL && curr != state::UL) {
-            line.insert(0, "<ul>\n");
+            //line.insert(0, "<ul>\n");
         } else if (handle_state == state::OL && curr != state::OL) {
+            //line.insert(0, "<ol>\n");
+        }
+
+
+        if (handle_ul_level > ul_level.top()) {
+            line.insert(0, "<ul>\n");
+            ul_level.push(handle_ul_level);
+        }
+
+        if (handle_ol_level > ol_level.top()) {
             line.insert(0, "<ol>\n");
+            ol_level.push(handle_ol_level);
         }
 
         /**UPDATE 20190517---支持嵌套引用块**/
@@ -261,10 +289,25 @@ namespace Markdown {
 
         /**如果curr（上次列表处理情况）为处理列表状态而本次parse没有处理到列表，更新curr并加上标签</ul>或者</ol>**/
         if (curr == state::OL && handle_state != state::OL) {
-            line.insert(0, "</ol>\n");
+            //line.insert(0, "</ol>\n");
         } else if (curr == state::UL && handle_state != state::UL) {
-            line.insert(0, "</ul>\n");
+            //line.insert(0, "</ul>\n");
         }
+
+        /**UPDATE**/
+        if (handle_ul_level < ul_level.top()) {
+            while (ul_level.top() > handle_ul_level) {
+                line.insert(0, "</ul>\n");
+                ul_level.pop();
+            }
+        }
+        if (handle_ol_level < ol_level.top()) {
+            while (ol_level.top() > handle_ol_level) {
+                line.insert(0, "</ol>\n");
+                ol_level.pop();
+            }
+        }
+
 
         /**FIXED: 迟更新，直到所有工作处理完之后才更新curr为handle_state，避免标签插入异常**/
         blockquote_level = handle_blockquote_level;  // 更新处理的引用块层数

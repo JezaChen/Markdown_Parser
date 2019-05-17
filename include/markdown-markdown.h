@@ -17,6 +17,9 @@ namespace Markdown {
     private:
         state curr;
 
+        std::stack<int> ul_level;
+        std::stack<int> ol_level;
+
         /**UPDATE: 为了支持嵌套blockquote，将状态改成数值，表示该行处于多少层的blockquote中**/
         int blockquote_level;
 
